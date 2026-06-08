@@ -1,0 +1,7 @@
+crewai
+crewai-tools
+streamlit
+langfuse
+openai
+python-dotenv
+requests
