@@ -8,7 +8,6 @@ from crewai import Crew, Process
 from agents import create_agents
 from tasks  import create_tasks
 from fallback.fallback_handler import validate_llm_output
-from monitoring.langfuse_config import setup_langfuse
 
 
 def run_education_crew(topic: str, difficulty: str = "beginner", num_questions: int = 3) -> dict:
@@ -22,32 +21,29 @@ def run_education_crew(topic: str, difficulty: str = "beginner", num_questions: 
         - error      : error message if something went wrong (else None)
     """
 
-    # 1. Enable Langfuse monitoring (reads from .env automatically)
-    setup_langfuse()
+    # 1. Set LLM model via environment (CrewAI uses OPENAI_API_KEY automatically)
+    os.environ.setdefault("OPENAI_MODEL_NAME", "gpt-4o-mini")
 
-    # 2. Set LLM model via environment (CrewAI uses OPENAI_API_KEY automatically)
-    os.environ.setdefault("OPENAI_MODEL_NAME", "gpt-4o-mini")  # cheap & capable
-
-    # 3. Build agents and tasks
+    # 2. Build agents and tasks
     research_agent, explainer_agent, quiz_agent = create_agents(difficulty=difficulty)
     research_task, explain_task, quiz_task = create_tasks(
         research_agent, explainer_agent, quiz_agent,
         topic=topic, difficulty=difficulty, num_questions=num_questions
     )
 
-    # 4. Assemble the crew (sequential: task 1 → task 2 → task 3)
+    # 3. Assemble the crew (sequential: task 1 → task 2 → task 3)
     crew = Crew(
         agents=[research_agent, explainer_agent, quiz_agent],
         tasks=[research_task, explain_task, quiz_task],
         process=Process.sequential,
         verbose=True,
+        # tracing=True removed — Langfuse v4 instruments via OpenTelemetry automatically
     )
 
-    # 5. Run with fallback protection
+    # 4. Run with fallback protection
     try:
         result = crew.kickoff()
 
-        # Extract per-task outputs
         research_output    = validate_llm_output(str(research_task.output))
         explanation_output = validate_llm_output(str(explain_task.output))
         quiz_output        = validate_llm_output(str(quiz_task.output))
@@ -60,12 +56,15 @@ def run_education_crew(topic: str, difficulty: str = "beginner", num_questions: 
         }
 
     except Exception as e:
-        # ── FALLBACK: crew failed entirely ──────────────────────────────
         print(f"[Fallback] Crew execution failed: {e}")
+        fallback_text = (
+            "I couldn't complete the learning session because the AI service is unavailable. "
+            "Please check your OpenAI API key and try again."
+        )
         return {
-            "research":    "",
-            "explanation": "",
-            "quiz":        "",
+            "research":    fallback_text,
+            "explanation": fallback_text,
+            "quiz":        fallback_text,
             "error": (
                 f"The education assistant encountered an error: {str(e)}\n\n"
                 "Please check your API keys in the .env file and try again."

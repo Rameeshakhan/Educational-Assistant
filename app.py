@@ -13,6 +13,9 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).parent))
 load_dotenv()
 
+from monitoring.langfuse_config import setup_langfuse, flush_langfuse
+langfuse_enabled = setup_langfuse()  
+
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Education Assistant",
@@ -110,9 +113,12 @@ with st.sidebar:
         st.error("❌ OpenAI key missing")
         st.info("Add your key to `.env` file:\n```\nOPENAI_API_KEY=sk-...\n```")
 
-    langfuse_key = os.getenv("LANGFUSE_PUBLIC_KEY", "")
-    if langfuse_key and langfuse_key != "your_langfuse_public_key":
+    langfuse_public_key = os.getenv("LANGFUSE_PUBLIC_KEY", "")
+    langfuse_secret_key = os.getenv("LANGFUSE_SECRET_KEY", "")
+    if langfuse_enabled:
         st.success("✅ Langfuse monitoring on")
+    elif langfuse_public_key and langfuse_secret_key:
+        st.warning("⚠️ Langfuse keys found but handler failed\n(check logs)")
     else:
         st.warning("⚠️ Langfuse keys missing\n(monitoring disabled)")
 
@@ -183,9 +189,31 @@ if run_button:
                 num_questions=num_questions,
             )
 
+            if langfuse_enabled:
+                flush_langfuse()
+        # NEW — checking langfuse_enabled (v4 boolean)
+        if langfuse_enabled:
+            st.success("✅ Langfuse monitoring on")
+        else:
+            st.warning("⚠️ Langfuse keys missing\n(monitoring disabled)")
+
         # ── Show error if crew failed ──────────────────────────────────
         if results["error"]:
             st.error(results["error"])
+            st.info("Fallback content is shown below because the AI service failed.")
+            st.markdown("---")
+
+            st.markdown('<div class="result-card"><h3>🔍 Research Summary</h3>', unsafe_allow_html=True)
+            st.markdown(results["research"])
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="result-card"><h3>📖 Explanation</h3>', unsafe_allow_html=True)
+            st.markdown(results["explanation"])
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="result-card"><h3>✏️ Quiz</h3>', unsafe_allow_html=True)
+            st.markdown(results["quiz"])
+            st.markdown('</div>', unsafe_allow_html=True)
 
         else:
             st.success("✅ Learning session complete!")
@@ -213,6 +241,7 @@ if run_button:
                 f"# Topic: {topic}  |  Level: {difficulty}\n\n"
                 f"## Research\n{results['research']}\n\n"
                 f"## Explanation\n{results['explanation']}\n\n"
-                f"## Quiz\n{results['quiz']}\n"
+                f"## Quiz\n{results['quiz']}\n",
+                encoding="utf-8",
             )
             st.caption(f"💾 Session saved to `{output_path}`")

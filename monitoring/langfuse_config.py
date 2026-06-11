@@ -1,6 +1,6 @@
 """
 monitoring/langfuse_config.py
-Sets up Langfuse for observability — tracks every LLM call, tool use, and error.
+Langfuse v4 — pure OpenTelemetry auto-instrumentation, no manual init needed.
 """
 
 import os
@@ -10,23 +10,35 @@ load_dotenv()
 
 
 def setup_langfuse():
-    """
-    Configure Langfuse tracing via environment variables.
-    CrewAI picks these up automatically when langfuse is installed.
-    Returns True if keys are present, False otherwise.
-    """
-    public_key  = os.getenv("LANGFUSE_PUBLIC_KEY", "")
-    secret_key  = os.getenv("LANGFUSE_SECRET_KEY", "")
-    host        = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
+    public_key = os.getenv("LANGFUSE_PUBLIC_KEY", "")
+    secret_key = os.getenv("LANGFUSE_SECRET_KEY", "")
+    host = os.getenv("LANGFUSE_HOST") or os.getenv("LANGFUSE_BASE_URL") or "https://cloud.langfuse.com"
 
     if not public_key or not secret_key:
-        print("[Langfuse] WARNING: LANGFUSE keys not set — monitoring disabled.")
+        print("[Langfuse] WARNING: Keys not set — monitoring disabled.")
         return False
 
-    # These env vars are read automatically by the langfuse SDK
     os.environ["LANGFUSE_PUBLIC_KEY"] = public_key
     os.environ["LANGFUSE_SECRET_KEY"] = secret_key
     os.environ["LANGFUSE_HOST"]       = host
 
-    print(f"[Langfuse] Monitoring enabled → {host}")
-    return True
+    try:
+        from langfuse.openai import openai  # patches OpenAI client automatically
+        from langfuse import get_client
+
+        # Verify auth so you know immediately if keys are wrong
+        get_client().auth_check()
+
+        print(f"[Langfuse] ✓ OpenAI instrumented and authenticated -> {host}")
+        return True
+    except Exception as e:
+        print(f"[Langfuse] ERROR: Could not initialize — {e}")
+        return False
+
+
+def flush_langfuse():
+    try:
+        from langfuse import get_client
+        get_client().flush()
+    except Exception:
+        pass
